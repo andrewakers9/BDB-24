@@ -1,5 +1,5 @@
 # BDB-24
-All code used to generate PPF metrics and submission visualizations\
+All code used to generate PPF metrics and submission visualizations
 
 Libraries to run `ppf-main.R`\
 MASS 7.3-60 \
@@ -11,7 +11,7 @@ future 1.33.0 \
 furrr 0.3.1 \
 rlang 1.1.2 \
 yardstick 1.2.0 \
-tidyverse 2.0.0 \
+tidyverse 2.0.0 
 
 Additionally, a python conda environment is required to run keras in R with the following requirements: \
 python==3.9.0 \
