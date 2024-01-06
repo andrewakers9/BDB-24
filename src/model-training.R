@@ -42,16 +42,16 @@ train_xgb <- function(train_df,
   
 }
 
-get_ttt_inputs <- function(df, 
-                           feat_names, 
-                           inference = FALSE,
-                           n_time_steps = 100) {
+get_tr_inputs <- function(df, 
+                          feat_names, 
+                          inference = FALSE,
+                          n_time_steps = 100) {
   
   if(!inference) {
     df <- df %>%
       filter(
         tackle_attempt == 1,
-        between(time_to_tackle, 1, n_time_steps)
+        between(time_to_end, 1, n_time_steps)
       )
   }
   
@@ -66,7 +66,7 @@ get_ttt_inputs <- function(df,
   
   label_mat <- matrix(0, nrow(df), 100)
   for(i in 1:nrow(label_mat)) {
-    label_mat[i, df$time_to_tackle[i]:ncol(label_mat)] <- 1
+    label_mat[i, df$time_to_end[i]:ncol(label_mat)] <- 1
   }
   
   return(
@@ -106,9 +106,9 @@ train_all_models <- function() {
   # save features in list
   feat_list <- list()
   
-  # time to tackle at current frame xgb regression model 
+  # time remaining at current frame xgb regression model 
   cat("Training XGBoost time to tackle model with features from current frame...\n")
-  ttt_feats <- c(
+  tr_feats <- c(
     "pass_play",
     "rel_x",
     "rel_y",
@@ -126,11 +126,12 @@ train_all_models <- function() {
     "acc_bc",
     "y_bc"
   )
-  feat_list$ttt_feats <- ttt_feats
+  feat_list$tr_feats <- tr_feats
 
-  ttt_filters <- list(
-    "time_to_tackle > 0",
-    "time_to_tackle <= 100"
+  tr_filters <- list(
+    "time_to_end > 0",
+    "time_to_end <= 100",
+    "tackle_attempt == 1"
   )
   
   params <- list(
@@ -142,62 +143,62 @@ train_all_models <- function() {
     min_child_weight = 1
   )
   
-  ttt_xgb_mod <- train_xgb(
+  tr_xgb_mod <- train_xgb(
     train_df,
     val_df,
-    ttt_feats,
-    label_name = "time_to_tackle",
+    tr_feats,
+    label_name = "time_to_end",
     params,
-    ttt_filters,
+    tr_filters,
     nrounds = 500
   )
-  xgb.save(ttt_xgb_mod, "models/ttt_xgb.model")
+  xgb.save(tr_xgb_mod, "models/tr_xgb.model")
   
   train_df <- add_preds_to_df(
-    ttt_xgb_mod,
+    tr_xgb_mod,
     train_df,
-    ttt_feats,
-    pred_name = "ttt_pred"
+    tr_feats,
+    pred_name = "tr_pred"
   )
   
   val_df <- add_preds_to_df(
-    ttt_xgb_mod,
+    tr_xgb_mod,
     val_df,
-    ttt_feats,
-    pred_name = "ttt_pred"
+    tr_feats,
+    pred_name = "tr_pred"
   )
   
-  # time to tackle given attempt cumulative dist model trained with crps loss 
-  cat("Training time to tackle CDF neural net with current frame features...\n")
-  ttt_feats <- append(ttt_feats, "ttt_pred")
+  # time remaining given attempt cumulative dist model trained with crps loss 
+  cat("Training time remaining CDF neural net with current frame features...\n")
+  tr_feats <- append(tr_feats, "tr_pred")
   
-  ttt_train <- get_ttt_inputs(train_df, ttt_feats)
-  ttt_val <- get_ttt_inputs(val_df, ttt_feats)
+  tr_train <- get_tr_inputs(train_df, tr_feats)
+  tr_val <- get_tr_inputs(val_df, tr_feats)
   
-  ttt_nn_mod <- keras_model_sequential() %>%
+  tr_nn_mod <- keras_model_sequential() %>%
     layer_dense(32, activation = "relu") %>%
     layer_dropout(0.2) %>%
     layer_dense(100, activation = "softmax")
   
-  ttt_nn_mod %>% 
+  tr_nn_mod %>% 
     compile(
       loss = crps_loss,
       optimizer = optimizer_adam(learning_rate = 0.00001)
     )
-  keras_fit <- ttt_nn_mod %>%
+  keras_fit <- tr_nn_mod %>%
     fit(
-      x = ttt_train$feats,
-      y = ttt_train$labels,
-      validation_data = ttt_val,
+      x = tr_train$feats,
+      y = tr_train$labels,
+      validation_data = tr_val,
       epochs = 75,
       batch_size = 64
     )
-  save_model_weights_tf(ttt_nn_mod, "models/ttt_nn")
+  save_model_weights_tf(tr_nn_mod, "models/tr_nn")
   
   ################################################################################
-  # time to tackle with fixed start location
-  cat("Training time to tackle XGBoost with starting frame features...\n")
-  ttt_start_feats <- c(
+  # time remaining with fixed start location
+  cat("Training time remaining XGBoost with starting frame features...\n")
+  tr_start_feats <- c(
     "pass_play",
     "frame_id_adj",
     "rel_x_start",
@@ -211,7 +212,7 @@ train_all_models <- function() {
     "rel_x_off",
     "rel_y_off"
   )
-  feat_list$ttt_start_feats <- ttt_start_feats
+  feat_list$tr_start_feats <- tr_start_feats
   
   params <- list(
     objective = "reg:absoluteerror",
@@ -222,57 +223,57 @@ train_all_models <- function() {
     min_child_weight = 2
   )
   
-  ttt_start_xgb_mod <- train_xgb(
+  tr_start_xgb_mod <- train_xgb(
     train_df,
     val_df,
-    ttt_start_feats,
-    label_name = "time_to_tackle",
+    tr_start_feats,
+    label_name = "time_to_end",
     params,
-    ttt_filters,
+    tr_filters,
     nrounds = 400
   )
-  xgb.save(ttt_start_xgb_mod, "models/ttt_start_xgb.model")
+  xgb.save(tr_start_xgb_mod, "models/tr_start_xgb.model")
   
   train_df <- add_preds_to_df(
-    ttt_start_xgb_mod,
+    tr_start_xgb_mod,
     train_df,
-    ttt_start_feats,
-    pred_name = "ttt_start_pred"
+    tr_start_feats,
+    pred_name = "tr_start_pred"
   )
   
   val_df <- add_preds_to_df(
-    ttt_start_xgb_mod,
+    tr_start_xgb_mod,
     val_df,
-    ttt_start_feats,
-    pred_name = "ttt_start_pred"
+    tr_start_feats,
+    pred_name = "tr_start_pred"
   )
   
   # time to tackle given attempt cumulative dist model trained with crps loss 
-  cat("Training time to tackle CDF neural net with starting frame features...\n")
-  ttt_start_feats <- append(ttt_start_feats, "ttt_start_pred")
+  cat("Training time remaining CDF neural net with starting frame features...\n")
+  tr_start_feats <- append(tr_start_feats, "tr_start_pred")
   
-  ttt_train <- get_ttt_inputs(train_df, ttt_start_feats)
-  ttt_val <- get_ttt_inputs(val_df, ttt_start_feats)
+  tr_train <- get_tr_inputs(train_df, tr_start_feats)
+  tr_val <- get_tr_inputs(val_df, tr_start_feats)
   
-  ttt_start_nn_mod <- keras_model_sequential() %>%
+  tr_start_nn_mod <- keras_model_sequential() %>%
     layer_dense(32, activation = "relu") %>%
     layer_dropout(0.2) %>%
     layer_dense(100, activation = "softmax")
   
-  ttt_start_nn_mod %>% 
+  tr_start_nn_mod %>% 
     compile(
       loss = crps_loss,
       optimizer = optimizer_adam(learning_rate = 0.00001)
     )
-  keras_fit <- ttt_start_nn_mod %>%
+  keras_fit <- tr_start_nn_mod %>%
     fit(
-      x = ttt_train$feats,
-      y = ttt_train$labels,
-      validation_data = ttt_val,
-      epochs = 50,
+      x = tr_train$feats,
+      y = tr_train$labels,
+      validation_data = tr_val,
+      epochs = 30,
       batch_size = 64
     )
-  save_model_weights_tf(ttt_start_nn_mod, "models/ttt_start_nn")
+  save_model_weights_tf(tr_start_nn_mod, "models/tr_start_nn")
   
   # tackle attempt model at the start of the play
   cat("Training tackle attempt model using starting frame features...\n")
@@ -414,7 +415,7 @@ train_all_models <- function() {
     filter(time_to_end > 0)
     
   gamma_glm <- glm(
-    time_to_end ~ frame_id_adj + closest_def*ttt_pred,
+    time_to_end ~ frame_id_adj + closest_def*tr_pred,
     family = Gamma(link = "log"),
     data = train_df
   )
@@ -423,7 +424,7 @@ train_all_models <- function() {
   write_rds(gamma_glm, "models/gamma_glm.rds")
   
   gamma_glm <- glm(
-    time_to_end ~ frame_id_adj + closest_def_start*ttt_start_pred,
+    time_to_end ~ frame_id_adj + closest_def_start*tr_start_pred,
     family = Gamma(link = "log"),
     data = train_df
   )

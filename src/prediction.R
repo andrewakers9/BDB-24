@@ -1,13 +1,13 @@
 
-create_ttt_model <- function() {
-  ttt_nn_mod <- keras_model_sequential() %>%
+create_tr_model <- function() {
+  tr_nn_mod <- keras_model_sequential() %>%
     layer_dense(32, activation = "relu") %>%
     layer_dropout(0.2) %>%
     layer_dense(100, activation = "softmax")
-  return(ttt_nn_mod)
+  return(tr_nn_mod)
 }
 
-get_calibrated_ttt_probs <- function(model, input_list) {
+get_calibrated_tr_probs <- function(model, input_list) {
   
   n_time_steps <- ncol(input_list$labels)
   preds <- predict(model, input_list$feats)
@@ -36,30 +36,30 @@ get_calibrated_ttt_probs <- function(model, input_list) {
   
 }
 
-extract_ttt_probs <- function(model, df, feat_names) {
+extract_tr_probs <- function(model, df, feat_names) {
   
   # fit and save calibration models 
   cal_df <- df %>%
     filter(
-      between(time_to_tackle, 1, 100)
+      between(time_to_end, 1, 100)
     )
-  ttt_inputs <- get_ttt_inputs(cal_df, feat_names)
-  preds <- predict(model, ttt_inputs$feats)
+  tr_inputs <- get_tr_inputs(cal_df, feat_names)
+  preds <- predict(model, tr_inputs$feats)
   
   n_time_steps <- ncol(preds)
   
-  map_f <- function(i, preds, ttt_inputs) {
+  map_f <- function(i, preds, tr_inputs) {
     if(i != 1) {
-      labels <- ttt_inputs$labels[, i] - ttt_inputs$labels[, i - 1]
+      labels <- tr_inputs$labels[, i] - tr_inputs$labels[, i - 1]
     } else {
-      labels <- ttt_inputs$labels[, i]
+      labels <- tr_inputs$labels[, i]
     }
     return(as.stepfun(isoreg(preds[, i], labels)))
   }
-  cal_models <- future_map(1:n_time_steps, map_f, preds, ttt_inputs)
+  cal_models <- future_map(1:n_time_steps, map_f, preds, tr_inputs)
   
   # features and preds for full dataset 
-  all_feats <- get_ttt_inputs(df, feat_names, inference = TRUE)
+  all_feats <- get_tr_inputs(df, feat_names, inference = TRUE)
   all_preds <- predict(model, all_feats)
   
   # calibrate preds with save models 
@@ -136,33 +136,33 @@ run_predictions <- function() {
   val_df <- read_csv("data/val_df.csv", col_types = cols())
   feat_list <- read_rds("data/feat_list.rds")
   
-  ttt_xgb_mod <- xgb.load("models/ttt_xgb.model")
+  tr_xgb_mod <- xgb.load("models/tr_xgb.model")
   val_df <- add_preds_to_df(
-    ttt_xgb_mod,
+    tr_xgb_mod,
     val_df,
-    feat_list$ttt_feats,
-    pred_name = "ttt_pred"
+    feat_list$tr_feats,
+    pred_name = "tr_pred"
   )
   
-  ttt_nn_mod <- create_ttt_model()
-  load_model_weights_tf(ttt_nn_mod, "models/ttt_nn")
-  ttt_feats <- append(feat_list$ttt_feats, "ttt_pred")
-  ttt_val <- get_ttt_inputs(val_df, ttt_feats)
-  val_df$ttt_prob <- extract_ttt_probs(ttt_nn_mod, val_df, ttt_feats)
+  tr_nn_mod <- create_tr_model()
+  load_model_weights_tf(tr_nn_mod, "models/tr_nn")
+  tr_feats <- append(feat_list$tr_feats, "tr_pred")
+  tr_val <- get_tr_inputs(val_df, tr_feats)
+  val_df$tr_prob <- extract_tr_probs(tr_nn_mod, val_df, tr_feats)
   
-  ttt_start_xgb_mod <- xgb.load("models/ttt_start_xgb.model")
+  tr_start_xgb_mod <- xgb.load("models/tr_start_xgb.model")
   val_df <- add_preds_to_df(
-    ttt_start_xgb_mod,
+    tr_start_xgb_mod,
     val_df,
-    feat_list$ttt_start_feats,
-    pred_name = "ttt_start_pred"
+    feat_list$tr_start_feats,
+    pred_name = "tr_start_pred"
   )
   
-  ttt_start_nn_mod <- create_ttt_model()
-  load_model_weights_tf(ttt_start_nn_mod, "models/ttt_start_nn")
-  ttt_start_feats <- append(feat_list$ttt_start_feats, "ttt_start_pred")
-  ttt_val <- get_ttt_inputs(val_df, ttt_start_feats)
-  val_df$ttt_start_prob <- extract_ttt_probs(ttt_start_nn_mod, val_df, ttt_start_feats)
+  tr_start_nn_mod <- create_tr_model()
+  load_model_weights_tf(tr_start_nn_mod, "models/tr_start_nn")
+  tr_start_feats <- append(feat_list$tr_start_feats, "tr_start_pred")
+  tr_val <- get_tr_inputs(val_df, tr_start_feats)
+  val_df$tr_start_prob <- extract_tr_probs(tr_start_nn_mod, val_df, tr_start_feats)
   
   ta_start_xgb_mod <- xgb.load("models/ta_start_xgb.model")
   val_df <- add_preds_to_df(
@@ -207,8 +207,8 @@ run_predictions <- function() {
   val_df <- val_df %>%
     mutate(
       cdf_cond = map2_dbl(time_to_end, gamma_rate, ~ pgamma(.x, ALPHA, rate = .y)),
-      ta_cond_prob = (ttt_prob * ta_prob) / cdf_cond,
-      ta_start_cond_prob = (ttt_start_prob * ta_start_prob) / cdf_cond
+      ta_cond_prob = (tr_prob * ta_prob) / cdf_cond,
+      ta_start_cond_prob = (tr_start_prob * ta_start_prob) / cdf_cond
     )
   
   gamma_glm <- read_rds("models/gamma_glm_start.rds")
@@ -219,7 +219,7 @@ run_predictions <- function() {
     ) %>%
     mutate(
       cdf_cond_start = map2_dbl(time_to_end, gamma_rate, ~ pgamma(.x, ALPHA, rate = .y)),
-      ta_start_cond_prob = (ttt_start_prob * ta_start_prob) / cdf_cond_start
+      ta_start_cond_prob = (tr_start_prob * ta_start_prob) / cdf_cond_start
     ) 
   
   # ensure probs are in the range [0, 1]

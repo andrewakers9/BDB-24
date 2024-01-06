@@ -371,7 +371,8 @@ animate_report_metrics <- function(df) {
       panel.grid.minor.x = element_blank(),
       panel.grid.minor.y = element_blank(),
       panel.grid.major.y = element_blank(),
-      panel.background = element_blank()
+      panel.background = element_blank(),
+      axis.text = element_text(size = 12, color = "black")
     ) +
     transition_reveal(Time)
 
@@ -388,6 +389,19 @@ animate_report_play_static <- function(play) {
   players <- c(44829, 47956, 53448)
   
   if(!is.data.frame(play)) play <- play[[1]]
+  
+  # General field boundaries
+  xmin <- 0
+  xmax <- 160/3
+  hash.right <- 38.35
+  hash.left <- 12
+  hash.width <- 3.3
+  
+  #specific boundaries
+  ymin <- max(round(min(play$x, na.rm = TRUE) - 20, -1), 0)
+  ymax <- min(round(max(play$x, na.rm = TRUE) + 10, -1), 120)
+  
+  num_yardlines <- length(seq(10, ymax, by = 10))
   
   play <- play %>%
     select(-tackle_prob) %>%
@@ -463,19 +477,6 @@ animate_report_play_static <- function(play) {
     filter(nfl_id == ball_carrier_id)
   
   cols_col <- c("#000000", "#663300", "#000000")
-  
-  # General field boundaries
-  xmin <- 0
-  xmax <- 160/3
-  hash.right <- 38.35
-  hash.left <- 12
-  hash.width <- 3.3
-  
-  #specific boundaries
-  ymin <- max(round(min(play$x, na.rm = TRUE) - 20, -1), 0)
-  ymax <- min(round(max(play$x, na.rm = TRUE) + 10, -1), 120)
-  
-  num_yardlines <- length(seq(10, ymax, by = 10))
   
   #hash marks
   df.hash <- expand.grid(x = c(0, 23.36667, 29.96667, xmax), y = (10:110))
@@ -574,6 +575,7 @@ animate_start_metric <- function(df) {
   df <- df %>%
     rename(prob = ta_start_cond_prob_cal) %>%
     mutate(
+      prob = if_else(Time != 1, (prob + lag(prob)) /2, prob),
       prob_label = as.character(round(prob, 2)),
       legend_name = str_c(display_name, " (", jersey_number, ")")
     )
@@ -606,7 +608,8 @@ animate_start_metric <- function(df) {
       panel.grid.minor.x = element_blank(),
       panel.grid.minor.y = element_blank(),
       panel.grid.major.y = element_blank(),
-      panel.background = element_blank()
+      panel.background = element_blank(),
+      axis.text = element_text(size = 12, color = "black")
     ) +
     transition_reveal(Time)
     

@@ -13,7 +13,7 @@ library(tidyverse)
 source("src/preprocess-data.R")
 source("src/model-training.R")
 source("src/prediction.R")
-source("src/evaluation.R")
+#source("src/evaluation.R")
 
 # global conflict preferences
 conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
